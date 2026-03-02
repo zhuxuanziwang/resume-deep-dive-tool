@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Resume Deep Dive Tool</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <h1>Resume Deep Dive</h1>
+        <p>PDF + Interview Q/A Editor</p>
+      </div>
+      <div class="actions">
+        <input id="pdfInput" type="file" accept="application/pdf" />
+        <button id="uploadBtn">上传并解析 PDF</button>
+        <button id="generateBtn" disabled>LLM 扫描关键词并生成 QA</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="doc-pane">
+        <div class="pane-header">
+          <h2>文档</h2>
+          <button id="createQaBtn" disabled>用选中文本创建 QA</button>
+        </div>
+        <div id="selectionHint" class="hint">先上传 PDF，再在文档中选中文本。</div>
+        <div id="docViewer" class="doc-viewer"></div>
+      </section>
+
+      <aside class="qa-pane">
+        <div class="pane-header">
+          <h2>问题与回答</h2>
+        </div>
+        <div id="qaList" class="qa-list"></div>
+      </aside>
+
+      <aside class="follow-pane">
+        <div class="pane-header">
+          <h2>追问栏</h2>
+        </div>
+        <div id="followupList" class="followup-list"></div>
+      </aside>
+    </main>
+
+    <template id="qaCardTpl">
+      <article class="qa-card">
+        <div class="qa-title-row">
+          <button class="jump-btn">定位高亮</button>
+          <span class="keyword"></span>
+        </div>
+        <label>命中文本</label>
+        <textarea class="quote" rows="3"></textarea>
+        <label>问题</label>
+        <textarea class="question" rows="3"></textarea>
+        <label>回答</label>
+        <textarea class="answer" rows="5"></textarea>
+        <div class="qa-card-actions">
+          <button class="gen-followup-btn">LLM 生成追问</button>
+          <button class="manual-followup-btn">从回答选中创建追问</button>
+        </div>
+        <div class="answer-highlight"></div>
+      </article>
+    </template>
+
+    <template id="followCardTpl">
+      <article class="follow-card">
+        <label>锚点</label>
+        <input class="anchor" type="text" />
+        <label>追问</label>
+        <textarea class="question" rows="3"></textarea>
+        <label>回答</label>
+        <textarea class="answer" rows="4"></textarea>
+      </article>
+    </template>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
