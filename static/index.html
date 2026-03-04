@@ -15,14 +15,15 @@
       <div class="actions">
         <input id="pdfInput" type="file" accept="application/pdf" />
         <button id="uploadBtn">上传并解析 PDF</button>
-        <button id="generateBtn" disabled>LLM 扫描关键词并生成 QA</button>
+        <button id="parseBtn" disabled>LLM 结构化解析经历</button>
+        <button id="generateBtn" disabled>为当前经历生成 QA</button>
       </div>
     </header>
 
     <main class="layout">
       <section class="doc-pane">
         <div class="pane-header">
-          <h2>文档</h2>
+          <h2>经历块</h2>
           <button id="createQaBtn" disabled>用选中文本创建 QA</button>
         </div>
         <div id="selectionHint" class="hint">先上传 PDF，再在文档中选中文本。</div>
@@ -39,6 +40,7 @@
       <aside class="follow-pane">
         <div class="pane-header">
           <h2>追问栏</h2>
+          <button id="addFollowupSetBtn" disabled>新增追问栏</button>
         </div>
         <div id="followupList" class="followup-list"></div>
       </aside>
@@ -50,6 +52,7 @@
           <button class="jump-btn">定位高亮</button>
           <span class="keyword"></span>
         </div>
+        <div class="qa-block-tag"></div>
         <label>命中文本</label>
         <textarea class="quote" rows="3"></textarea>
         <label>问题</label>
@@ -57,8 +60,8 @@
         <label>回答</label>
         <textarea class="answer" rows="5"></textarea>
         <div class="qa-card-actions">
-          <button class="gen-followup-btn">LLM 生成追问</button>
-          <button class="manual-followup-btn">从回答选中创建追问</button>
+          <button class="gen-followup-btn">LLM 新建追问栏</button>
+          <button class="manual-followup-btn">从回答选中建追问栏</button>
         </div>
         <div class="answer-highlight"></div>
       </article>
@@ -72,6 +75,7 @@
         <textarea class="question" rows="3"></textarea>
         <label>回答</label>
         <textarea class="answer" rows="4"></textarea>
+        <button class="deep-dive-btn">继续追问</button>
       </article>
     </template>
 

@@ -114,6 +114,12 @@ button:disabled {
   padding-right: 4px;
 }
 
+.doc-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .page {
   margin: 10px 0;
   border: 1px solid #e8e0d3;
@@ -132,6 +138,56 @@ button:disabled {
   margin: 0;
   white-space: normal;
   line-height: 1.55;
+}
+
+.exp-block {
+  border: 1px solid #e5d8c6;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.exp-block.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.exp-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.exp-meta {
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.exp-meta span {
+  border: 1px solid #e5d8c6;
+  background: #faf4ea;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.exp-content {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.exp-bullets {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.exp-bullets li {
+  margin: 6px 0;
+  line-height: 1.5;
 }
 
 .hl {
@@ -176,6 +232,12 @@ button:disabled {
   font-weight: 700;
 }
 
+.qa-block-tag {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 textarea,
 input[type="text"] {
   width: 100%;
@@ -214,6 +276,42 @@ label {
   border-radius: 3px;
 }
 
+.followup-list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(320px, 1fr);
+  gap: 10px;
+  align-content: start;
+  overflow-x: auto;
+}
+
+.followup-set {
+  border: 1px solid #d8cfbf;
+  border-radius: 10px;
+  background: #fffcf6;
+  padding: 10px;
+}
+
+.followup-set-header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.followup-set-header input {
+  flex: 1;
+  margin: 0;
+}
+
+.follow-card {
+  margin-bottom: 8px;
+}
+
+.deep-dive-btn {
+  width: 100%;
+  margin-top: 4px;
+}
+
 @media (max-width: 1200px) {
   .layout {
     grid-template-columns: 1fr;
@@ -223,5 +321,10 @@ label {
   .qa-pane,
   .follow-pane {
     min-height: 320px;
+  }
+
+  .followup-list {
+    grid-auto-flow: row;
+    grid-auto-columns: 1fr;
   }
 }

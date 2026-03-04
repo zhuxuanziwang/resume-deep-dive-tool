@@ -1,16 +1,20 @@
 const state = {
   documentId: null,
   pages: [],
+  blocks: [],
   qaItems: [],
   selectedQaId: null,
+  selectedBlockId: null,
   selectedDocText: "",
 };
 
 const el = {
   pdfInput: document.getElementById("pdfInput"),
   uploadBtn: document.getElementById("uploadBtn"),
+  parseBtn: document.getElementById("parseBtn"),
   generateBtn: document.getElementById("generateBtn"),
   createQaBtn: document.getElementById("createQaBtn"),
+  addFollowupSetBtn: document.getElementById("addFollowupSetBtn"),
   selectionHint: document.getElementById("selectionHint"),
   docViewer: document.getElementById("docViewer"),
   qaList: document.getElementById("qaList"),
@@ -20,8 +24,10 @@ const el = {
 };
 
 el.uploadBtn.addEventListener("click", uploadPdf);
+el.parseBtn.addEventListener("click", () => parseResumeBlocks(false));
 el.generateBtn.addEventListener("click", generateQaByLlm);
 el.createQaBtn.addEventListener("click", createQaFromSelection);
+el.addFollowupSetBtn.addEventListener("click", addEmptyFollowupSetToSelectedQa);
 document.addEventListener("selectionchange", trackDocSelection);
 
 async function uploadPdf() {
@@ -41,12 +47,42 @@ async function uploadPdf() {
   const data = await resp.json();
   state.documentId = data.document_id;
   state.pages = data.pages || [];
+  state.blocks = [];
   state.qaItems = [];
   state.selectedQaId = null;
+  state.selectedBlockId = null;
   state.selectedDocText = "";
-  el.generateBtn.disabled = false;
+
+  el.parseBtn.disabled = false;
+  el.generateBtn.disabled = true;
   el.createQaBtn.disabled = true;
-  el.selectionHint.textContent = "PDF 已解析，可执行 LLM 扫描，或手工选中文本创建 QA。";
+  el.addFollowupSetBtn.disabled = true;
+  el.selectionHint.textContent = "PDF 已上传，正在调用 LLM 结构化解析经历...";
+  renderAll();
+
+  await parseResumeBlocks(true);
+}
+
+async function parseResumeBlocks(isAuto) {
+  if (!state.documentId) return;
+  const resp = await fetch("/api/parse-resume", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ document_id: state.documentId }),
+  });
+  if (!resp.ok) {
+    if (!isAuto) alert(`解析失败: ${await resp.text()}`);
+    return;
+  }
+
+  const data = await resp.json();
+  state.blocks = data.blocks || [];
+  state.selectedBlockId = state.blocks[0]?.id || null;
+  el.generateBtn.disabled = false;
+  const modeText = data.parse_mode === "llm" ? "LLM API" : "fallback";
+  el.selectionHint.textContent = state.blocks.length
+    ? `已按经历分块（${modeText}），可选中块后生成 QA，或手工选中文本建 QA。`
+    : `解析完成（${modeText}），但未识别到经历块，可直接手工选中创建 QA。`;
   renderAll();
 }
 
@@ -55,15 +91,29 @@ async function generateQaByLlm() {
   const resp = await fetch("/api/generate-qa", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ document_id: state.documentId, max_items: 8 }),
+    body: JSON.stringify({
+      document_id: state.documentId,
+      block_id: state.selectedBlockId,
+      max_items: 8,
+    }),
   });
   if (!resp.ok) {
     alert(`生成失败: ${await resp.text()}`);
     return;
   }
   const data = await resp.json();
-  state.qaItems = (data.qa_items || []).map((item) => ({ ...item, followups: [] }));
-  state.selectedQaId = state.qaItems[0]?.id || null;
+  const incoming = (data.qa_items || []).map((item) => ({
+    ...item,
+    followup_sets: item.followup_sets || [],
+  }));
+  if (state.selectedBlockId) {
+    state.qaItems = state.qaItems.filter((q) => q.block_id !== state.selectedBlockId);
+    state.qaItems = [...incoming, ...state.qaItems];
+  } else {
+    state.qaItems = incoming;
+  }
+  state.selectedQaId = incoming[0]?.id || state.selectedQaId;
+  el.addFollowupSetBtn.disabled = !state.selectedQaId;
   renderAll();
 }
 
@@ -75,48 +125,86 @@ function renderAll() {
 
 function renderDocument() {
   el.docViewer.innerHTML = "";
-  if (!state.pages.length) return;
+  if (state.blocks.length) {
+    state.blocks.forEach((block) => {
+      const card = document.createElement("article");
+      card.className = "exp-block";
+      if (block.id === state.selectedBlockId) card.classList.add("selected");
+      card.dataset.blockId = block.id;
 
-  state.pages.forEach((pageText, idx) => {
-    const pageEl = document.createElement("section");
-    pageEl.className = "page";
-    pageEl.dataset.page = String(idx);
+      const header = document.createElement("div");
+      header.className = "exp-header";
+      header.innerHTML = `
+        <h3>${escapeHtml(block.title || "Experience")}</h3>
+        <div class="exp-meta">
+          <span>${escapeHtml(block.organization || "")}</span>
+          <span>${escapeHtml(block.role || "")}</span>
+          <span>${escapeHtml(block.period || "")}</span>
+          <span>${escapeHtml(block.location || "")}</span>
+        </div>
+      `;
+      card.appendChild(header);
 
-    const title = document.createElement("h3");
-    title.textContent = `Page ${idx + 1}`;
-    pageEl.appendChild(title);
+      const content = document.createElement("p");
+      content.className = "exp-content";
+      content.innerHTML = renderHighlightedText(block.content || "", block.id);
+      card.appendChild(content);
 
-    const p = document.createElement("p");
-    p.className = "page-text";
-    p.innerHTML = renderHighlightedText(pageText, idx);
-    pageEl.appendChild(p);
-    el.docViewer.appendChild(pageEl);
-  });
+      const bullets = block.bullets || [];
+      if (bullets.length) {
+        const ul = document.createElement("ul");
+        ul.className = "exp-bullets";
+        bullets.forEach((b) => {
+          const li = document.createElement("li");
+          li.innerHTML = renderHighlightedText(b, block.id);
+          ul.appendChild(li);
+        });
+        card.appendChild(ul);
+      }
+
+      card.addEventListener("click", () => {
+        state.selectedBlockId = block.id;
+        renderDocument();
+      });
+      el.docViewer.appendChild(card);
+    });
+  } else if (state.pages.length) {
+    state.pages.forEach((pageText, idx) => {
+      const pageEl = document.createElement("section");
+      pageEl.className = "page";
+      const title = document.createElement("h3");
+      title.textContent = `Page ${idx + 1}`;
+      pageEl.appendChild(title);
+      const p = document.createElement("p");
+      p.className = "page-text";
+      p.innerHTML = renderHighlightedText(pageText, null);
+      pageEl.appendChild(p);
+      el.docViewer.appendChild(pageEl);
+    });
+  }
 
   el.docViewer.querySelectorAll("mark[data-qa-id]").forEach((node) => {
     node.addEventListener("click", () => {
       const qaId = node.getAttribute("data-qa-id");
       if (!qaId) return;
       state.selectedQaId = qaId;
-      renderQaList();
-      renderFollowups();
+      const qa = state.qaItems.find((item) => item.id === qaId);
+      if (qa?.block_id) state.selectedBlockId = qa.block_id;
+      renderAll();
     });
   });
 }
 
-function renderHighlightedText(text, pageIndex) {
+function renderHighlightedText(text, blockId) {
+  if (!text) return "";
   const ranges = [];
-  state.qaItems.forEach((qa) => {
+  const scoped = state.qaItems.filter((qa) => !qa.block_id || qa.block_id === blockId);
+  scoped.forEach((qa) => {
     const needles = [qa.quote, qa.keyword].filter(Boolean);
     for (const needle of needles) {
       const idx = indexOfInsensitive(text, needle);
       if (idx >= 0) {
-        ranges.push({
-          start: idx,
-          end: idx + needle.length,
-          qaId: qa.id,
-          page: pageIndex,
-        });
+        ranges.push({ start: idx, end: idx + needle.length, qaId: qa.id });
         break;
       }
     }
@@ -149,7 +237,7 @@ function renderHighlightedText(text, pageIndex) {
 function renderQaList() {
   el.qaList.innerHTML = "";
   if (!state.qaItems.length) {
-    el.qaList.innerHTML = `<p class="hint">暂无 QA。请先执行 LLM 扫描或手工创建。</p>`;
+    el.qaList.innerHTML = `<p class="hint">暂无 QA。选中经历块后点“生成 QA”或手工创建。</p>`;
     return;
   }
 
@@ -158,6 +246,7 @@ function renderQaList() {
     const card = frag.querySelector(".qa-card");
     const jumpBtn = frag.querySelector(".jump-btn");
     const keyword = frag.querySelector(".keyword");
+    const blockTag = frag.querySelector(".qa-block-tag");
     const quote = frag.querySelector(".quote");
     const question = frag.querySelector(".question");
     const answer = frag.querySelector(".answer");
@@ -166,27 +255,25 @@ function renderQaList() {
     const answerHl = frag.querySelector(".answer-highlight");
 
     keyword.textContent = qa.keyword || "Key Topic";
+    blockTag.textContent = qa.block_title ? `来源: ${qa.block_title}` : "来源: 全文";
     quote.value = qa.quote || "";
     question.value = qa.question || "";
     answer.value = qa.answer || "";
 
-    if (qa.id === state.selectedQaId) {
-      card.classList.add("selected");
-    }
+    if (qa.id === state.selectedQaId) card.classList.add("selected");
 
     card.addEventListener("click", () => {
       state.selectedQaId = qa.id;
-      renderDocument();
-      renderQaList();
-      renderFollowups();
+      if (qa.block_id) state.selectedBlockId = qa.block_id;
+      el.addFollowupSetBtn.disabled = false;
+      renderAll();
     });
 
     jumpBtn.addEventListener("click", (evt) => {
       evt.stopPropagation();
       state.selectedQaId = qa.id;
-      renderDocument();
-      renderQaList();
-      renderFollowups();
+      if (qa.block_id) state.selectedBlockId = qa.block_id;
+      renderAll();
       const marker = document.querySelector(`mark[data-qa-id="${qa.id}"]`);
       if (marker) marker.scrollIntoView({ behavior: "smooth", block: "center" });
     });
@@ -205,7 +292,7 @@ function renderQaList() {
 
     genBtn.addEventListener("click", async (evt) => {
       evt.stopPropagation();
-      await generateFollowupsByLlm(qa);
+      await addFollowupSetByLlm(qa, qa.question || "", qa.answer || "");
     });
 
     manualBtn.addEventListener("click", (evt) => {
@@ -213,17 +300,23 @@ function renderQaList() {
       const start = answer.selectionStart;
       const end = answer.selectionEnd;
       if (start === end) {
-        alert("先在回答文本中选中一段内容，再创建追问。");
+        alert("先在回答中选中一段文字。");
         return;
       }
       const anchor = answer.value.slice(start, end).trim();
       if (!anchor) return;
-      qa.followups = qa.followups || [];
-      qa.followups.push({
+      qa.followup_sets = qa.followup_sets || [];
+      qa.followup_sets.push({
         id: crypto.randomUUID(),
-        anchor,
-        question: `你在回答里提到 "${anchor}"，具体是怎么实现的？`,
-        answer: "",
+        title: `Deep Dive ${qa.followup_sets.length + 1}`,
+        items: [
+          {
+            id: crypto.randomUUID(),
+            anchor,
+            question: `你提到 "${anchor}"，请展开实现细节和取舍。`,
+            answer: "",
+          },
+        ],
       });
       state.selectedQaId = qa.id;
       renderQaList();
@@ -236,8 +329,9 @@ function renderQaList() {
 }
 
 function renderAnswerAnchors(qa, container) {
-  const followups = qa.followups || [];
-  const anchors = followups.map((f) => f.anchor).filter(Boolean);
+  const anchors = flattenFollowups(qa)
+    .map((f) => f.anchor)
+    .filter(Boolean);
   if (!qa.answer || !anchors.length) {
     container.innerHTML = "";
     return;
@@ -253,50 +347,102 @@ function renderAnswerAnchors(qa, container) {
 function renderFollowups() {
   el.followupList.innerHTML = "";
   const qa = state.qaItems.find((item) => item.id === state.selectedQaId);
+  el.addFollowupSetBtn.disabled = !qa;
   if (!qa) {
-    el.followupList.innerHTML = `<p class="hint">选中一个 QA 后显示追问。</p>`;
+    el.followupList.innerHTML = `<p class="hint">选中一个 QA 后显示追问栏。</p>`;
     return;
   }
-  qa.followups = qa.followups || [];
-  if (!qa.followups.length) {
-    el.followupList.innerHTML = `<p class="hint">当前 QA 暂无追问。可用 LLM 生成，或在回答里手工选中创建。</p>`;
+  qa.followup_sets = qa.followup_sets || [];
+  if (!qa.followup_sets.length) {
+    el.followupList.innerHTML = `<p class="hint">暂无追问栏。可新建多个 deep-dive 栏并继续追问。</p>`;
     return;
   }
 
-  qa.followups.forEach((f) => {
-    const frag = el.followCardTpl.content.cloneNode(true);
-    const card = frag.querySelector(".follow-card");
-    const anchor = frag.querySelector(".anchor");
-    const question = frag.querySelector(".question");
-    const answer = frag.querySelector(".answer");
+  qa.followup_sets.forEach((set, setIndex) => {
+    const setWrap = document.createElement("section");
+    setWrap.className = "followup-set";
 
-    anchor.value = f.anchor || "";
-    question.value = f.question || "";
-    answer.value = f.answer || "";
+    const header = document.createElement("div");
+    header.className = "followup-set-header";
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.value = set.title || `Deep Dive ${setIndex + 1}`;
+    titleInput.addEventListener("input", () => {
+      set.title = titleInput.value;
+    });
+    const addItemBtn = document.createElement("button");
+    addItemBtn.textContent = "添加问题";
+    addItemBtn.addEventListener("click", () => {
+      set.items = set.items || [];
+      set.items.push({
+        id: crypto.randomUUID(),
+        anchor: "",
+        question: "",
+        answer: "",
+      });
+      renderFollowups();
+    });
+    header.appendChild(titleInput);
+    header.appendChild(addItemBtn);
+    setWrap.appendChild(header);
 
-    anchor.addEventListener("input", () => {
-      f.anchor = anchor.value;
-      renderQaList();
-    });
-    question.addEventListener("input", () => {
-      f.question = question.value;
-    });
-    answer.addEventListener("input", () => {
-      f.answer = answer.value;
-    });
+    set.items = set.items || [];
+    set.items.forEach((f) => {
+      const frag = el.followCardTpl.content.cloneNode(true);
+      const card = frag.querySelector(".follow-card");
+      const anchor = frag.querySelector(".anchor");
+      const question = frag.querySelector(".question");
+      const answer = frag.querySelector(".answer");
+      const deepBtn = frag.querySelector(".deep-dive-btn");
 
-    el.followupList.appendChild(card);
+      anchor.value = f.anchor || "";
+      question.value = f.question || "";
+      answer.value = f.answer || "";
+
+      anchor.addEventListener("input", () => {
+        f.anchor = anchor.value;
+        renderQaList();
+      });
+      question.addEventListener("input", () => {
+        f.question = question.value;
+      });
+      answer.addEventListener("input", () => {
+        f.answer = answer.value;
+      });
+      deepBtn.addEventListener("click", async () => {
+        if (!f.answer?.trim()) {
+          alert("先填写这条追问的回答，再继续 deep dive。");
+          return;
+        }
+        await deepDiveWithinSet(set, f);
+      });
+
+      setWrap.appendChild(card);
+    });
+    el.followupList.appendChild(setWrap);
   });
 }
 
-async function generateFollowupsByLlm(qa) {
+function addEmptyFollowupSetToSelectedQa() {
+  const qa = state.qaItems.find((item) => item.id === state.selectedQaId);
+  if (!qa) return;
+  qa.followup_sets = qa.followup_sets || [];
+  qa.followup_sets.push({
+    id: crypto.randomUUID(),
+    title: `Deep Dive ${qa.followup_sets.length + 1}`,
+    items: [],
+  });
+  renderFollowups();
+}
+
+async function addFollowupSetByLlm(qa, question, answer) {
   const resp = await fetch("/api/generate-followups", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      question: qa.question || "",
-      answer: qa.answer || "",
-      max_items: 5,
+      question,
+      answer,
+      max_items: 4,
     }),
   });
   if (!resp.ok) {
@@ -304,10 +450,46 @@ async function generateFollowupsByLlm(qa) {
     return;
   }
   const data = await resp.json();
-  qa.followups = (data.followups || []).map((x) => ({ ...x }));
+  const items = (data.followups || []).map((x) => ({ ...x }));
+  qa.followup_sets = qa.followup_sets || [];
+  qa.followup_sets.push({
+    id: crypto.randomUUID(),
+    title: `Deep Dive ${qa.followup_sets.length + 1}`,
+    items,
+  });
   state.selectedQaId = qa.id;
   renderQaList();
   renderFollowups();
+}
+
+async function deepDiveWithinSet(set, item) {
+  const resp = await fetch("/api/generate-followups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      question: item.question || "",
+      answer: item.answer || "",
+      max_items: 3,
+    }),
+  });
+  if (!resp.ok) {
+    alert(`继续追问失败: ${await resp.text()}`);
+    return;
+  }
+  const data = await resp.json();
+  const newItems = (data.followups || []).map((x) => ({ ...x }));
+  set.items = set.items || [];
+  set.items.push(...newItems);
+  renderFollowups();
+}
+
+function flattenFollowups(qa) {
+  const sets = qa.followup_sets || [];
+  const result = [];
+  sets.forEach((set) => {
+    (set.items || []).forEach((item) => result.push(item));
+  });
+  return result;
 }
 
 function trackDocSelection() {
@@ -325,7 +507,8 @@ function trackDocSelection() {
   }
   const anchorNode = sel.anchorNode;
   if (!anchorNode) return;
-  const inDoc = el.docViewer.contains(anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode);
+  const node = anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
+  const inDoc = el.docViewer.contains(node);
   if (!inDoc) {
     state.selectedDocText = "";
     el.createQaBtn.disabled = true;
@@ -340,19 +523,23 @@ function createQaFromSelection() {
   if (!state.selectedDocText) return;
   const snippet = state.selectedDocText;
   const keyword = snippet.split(/\s+/)[0].slice(0, 30) || "Selected Topic";
+  const block = state.blocks.find((b) => b.id === state.selectedBlockId);
   const qa = {
     id: crypto.randomUUID(),
     keyword,
     quote: snippet,
     question: `你在这里提到 "${keyword}"，能讲讲具体技术细节吗？`,
     answer: "",
-    followups: [],
+    block_id: block?.id || null,
+    block_title: block?.title || null,
+    followup_sets: [],
   };
   state.qaItems.unshift(qa);
   state.selectedQaId = qa.id;
-  el.createQaBtn.disabled = true;
   state.selectedDocText = "";
-  el.selectionHint.textContent = "已创建 QA。可继续编辑或生成追问。";
+  el.createQaBtn.disabled = true;
+  el.addFollowupSetBtn.disabled = false;
+  el.selectionHint.textContent = "已创建 QA。可继续编辑并创建多个追问栏。";
   renderAll();
 }
 
@@ -362,7 +549,7 @@ function indexOfInsensitive(haystack, needle) {
 }
 
 function escapeHtml(str) {
-  return str
+  return String(str)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
