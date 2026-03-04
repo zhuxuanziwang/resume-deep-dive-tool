@@ -2,29 +2,35 @@
 
 PDF interview prep assistant:
 - Upload a resume PDF
-- Auto-extract interview-relevant keywords and Q/A with an LLM API
-- Highlight matched text in the document
+- Use LLM API to parse resume into structured experience blocks
+- Generate interview-relevant keywords and Q/A per experience block
+- Highlight matched text in each block
 - Edit Q/A in a right-side panel
-- Create nested follow-up Q/A from existing answers (LLM or manual selection)
+- Create multiple deep-dive follow-up panels from existing answers (LLM or manual selection)
 
 ## Quick Start
 
 1. Create and activate a virtual environment.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
 2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Set environment variables (optional, for LLM calls):
+3. Configure environment variables first:
 
 ```bash
-export LLM_BASE_URL="https://api.openai.com/v1/chat/completions"
-export LLM_API_KEY="your_api_key"
-export LLM_MODEL="gpt-4o-mini"
+cp .env.example .env
+# edit .env and fill LLM_API_KEY
 ```
 
-If LLM env vars are missing, the app falls back to heuristic generation.
+The backend auto-loads `.env`. If LLM vars are missing, it falls back to heuristic parsing/generation.
 
 4. Run:
 
@@ -39,6 +45,6 @@ uvicorn app.main:app --reload
 ## API
 
 - `POST /api/upload-pdf`: upload PDF and extract text
-- `POST /api/generate-qa`: generate initial Q/A candidates
+- `POST /api/parse-resume`: parse resume into structured blocks with LLM
+- `POST /api/generate-qa`: generate Q/A candidates (supports per-block generation)
 - `POST /api/generate-followups`: generate follow-up questions from an answer
-
